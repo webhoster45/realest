@@ -51,9 +51,9 @@ catch(err){
 
 
 
-app.post('/signup',async (req,res)=>{
+app.post('/register',async (req,res)=>{
 try{
-        const {username,password,email}=req.body;
+    const {username,password,email}=req.body;
     if(!username || !password || !email) return res.status(400).json({message:"Missing Parameters"});
     const existinguser=User.findOne({username});
     if(existinguser) return res.status(409).json({message:"User already exists"});
@@ -66,6 +66,22 @@ try{
 catch(err){
     console.log(err);
 }
+})
+
+app.post('/login',async(req,res)=>{
+  try{
+    const {username,password,email}=req.body;
+    if(!username || !password) return res.status(400).json({message:"Missing Parameters"});
+    const user=await User.findOne({username});
+    if(!user) return res.status(404).json({message:"User not found"});
+    const match=await bcrypt.compare(password,user.password);
+    if(!match) return res.status(400).json({message:"Invalid Username or passoword"});
+    const token=jwt.sign({username},JWT_SECERT);
+    return res.status(200).json({message:`User ${username} logged in successfully`,token})
+
+  }catch(err){
+    console.log(err);
+  }
 })
 
 
