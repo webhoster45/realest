@@ -87,3 +87,4 @@ const nextTask = await redis.lpop('task:queue');
 Checks instantly if a user is a premium member.
 await redis.sadd('premium:users', 'user_123');
 const isPremium = await redis.sismember('premium:users', 'user_123'); // returns 1 (true)
+```

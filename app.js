@@ -9,15 +9,28 @@ const MONGODB_URL=process.env.MONGODB_URL;
 const JWT_SECERT=process.env.JWT_SECERT;
 const Schema=mongoose.Schema;
 const bcrypt=require('bcrypt');
+const Redis=require('ioredis');
+const redisclient=new Redis({
+      host: '127.0.0.1',
+      port: 6379
+
+});
 
 const userschema=new Schema({
     username:{type:String,required:true},
     password:{type:String,required:true},
     email:{type:String,required:true}
-})
+},{timestamps:true});
+
+const eventschema=new Schema({
+    userid:{type:Schema.Types.ObjectId,ref:'User',required:true},
+    eventtype:{type:String,required:true},
+    page:{type:String,required:true},
+    metadata:{type:Object,required:true}
+},{timestamps:true})
 
 const User=mongoose.model('User',userschema);
-
+const Event=mongoose.model('Event',eventschema)
 
 const app=express();
 
@@ -85,8 +98,36 @@ app.post('/login',async(req,res)=>{
 })
 
 
-app.post('/event',(req,res)=>{
-    const {eventType, page, metadata}= req.body;
+app.post('/event',authmiddleware,async (req,res)=>{
+    const {eventtype, page, metadata}= req.body;
+    const username=req.user;
+    const userid=User.findOne({username}).id;
+
+    const allowedEvents = ['page_view', 'login','logout','file-upload','file-download','search'];
+    if (!allowedEvents.includes(eventtype)) {
+      throw new Error(`Invalid event type: ${event.eventType}`);
+    }
+    if(!eventtype || !page || !metadata) return res.status(400).json({message:"Missing Parameters"});
+    
+    const totalevents= Number (await redisclient.get('totalevent') )|| 0;
+    totalevents += 1;
+    await redisclient.set('Total Events',totalevents);
+
+    if(eventtype == 'page_view'){
+    const pageview= Number (await redisclient.get('totalevent') )|| 0;
+    pageview += 1;
+    await redisclient.set('Page views: ',pageview);
+    }
+    else if(eventtype == 'login'){}
+    else if(eventtype == 'logout'){}
+    else if(eventtype == 'file-upload'){}
+    else if(eventtype == 'file-download'){}
+    else if(eventtype == 'search'){}
+    else{}
+
+
+
+
 })
 
 
