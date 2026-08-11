@@ -118,7 +118,12 @@ app.post('/event',authmiddleware,async (req,res)=>{
     pageview += 1;
     await redisclient.set('Page views: ',pageview);
     }
-    else if(eventtype == 'login'){}
+    else if(eventtype == 'login'){
+      const logincount=Number (await redisclient.get('login')) || 0;
+      logincount += 1;
+      await redisclient.pfadd('login',userid);
+      await redisclient.set('login count: ',logincount);
+    }
     else if(eventtype == 'logout'){}
     else if(eventtype == 'file-upload'){}
     else if(eventtype == 'file-download'){}
