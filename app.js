@@ -31,7 +31,7 @@ const redisclient = createClient({
 redisclient.on('error', err => console.log('Redis Client Error', err));
 
 // Note: Node-Redis requires you to connect explicitly
-
+redisclient.connect(); 
 
 
 const userschema=new Schema({
@@ -86,7 +86,7 @@ app.post('/register',async (req,res)=>{
 try{
     const {username,password,email}=req.body;
     if(!username || !password || !email) return res.status(400).json({message:"Missing Parameters"});
-    const existinguser=User.findOne({username});
+    const existinguser=await User.findOne({username});
     if(existinguser) return res.status(409).json({message:"User already exists"});
     const hashedpassword=await bcrypt.hash(password,10);
     await User.create({username,password:hashedpassword,email});
@@ -117,50 +117,51 @@ app.post('/login',async(req,res)=>{
 
 
 app.post('/event',authmiddleware,async (req,res)=>{
-    await redisclient.connect(); 
     const {eventtype, page, metadata}= req.body;
     const username=req.user;
-    const userid=User.findOne({username}).id;
+    const userid=await User.findOne({username}).id;
 
     const allowedEvents = ['page_view', 'login','logout','file-upload','file-download','search'];
     if (!allowedEvents.includes(eventtype)) {
-      throw new Error(`Invalid event type: ${event.eventType}`);
+      throw new Error(`Invalid event type: ${eventType}`);
     }
     if(!eventtype || !page || !metadata) return res.status(400).json({message:"Missing Parameters"});
     
-    const totalevents= Number (await redisclient.get('Total events:') )|| 0;
+    let totalevents= Number (await redisclient.get('Total events:') )|| 0;
     totalevents += 1;
     await redisclient.set('Total events:',totalevents);
 
     if(eventtype == 'page_view'){
-    const pageview= Number (await redisclient.get('Page views: ') )|| 0;
+    let pageview= Number (await redisclient.get('Page views: ') )|| 0;
     pageview += 1;
     await redisclient.set('Page views: ',pageview);
+    return res.status(200).json({message:await redisclient.get('Page views: ')})
     }
     else if(eventtype == 'login'){
-      const logincount=Number (await redisclient.get('login count:')) || 0;
+      let logincount=Number (await redisclient.get('login count:')) || 0;
       logincount += 1;
-      await redisclient.pfadd('logins:',userid);
+      await redisclient.pfAdd('logins:',userid);
       await redisclient.set('login count:',logincount);
+      return res.status(200).json({'Total logins:':await redisclient.get('login count:'),'Unique logins':await redisclient.pfCount('visitors:2026-08-09')})
     }
     else if(eventtype == 'logout'){
-      const logoutcount=Number (await redisclient.get('Logout: ')) || 0;
+      let logoutcount=Number (await redisclient.get('Logout: ')) || 0;
       logoutcount += 1;
       await redisclient.pfadd('logout count: ',userid);
       await redisclient.set('logout count: ',logoutcount);
     }
     else if(eventtype == 'file-upload'){
-      const fileuploadcount=Number (await redisclient.get('file upload count:')) || 0;
+      let fileuploadcount=Number (await redisclient.get('file upload count:')) || 0;
       fileuploadcount += 1;
       await redisclient.set('file upload count:',fileuploadcount);
     }
     else if(eventtype == 'file-download'){
-      const filedownloadcount=Number (await redisclient.get('file download count:')) || 0;
+      let filedownloadcount=Number (await redisclient.get('file download count:')) || 0;
       filedownloadcount += 1;
       await redisclient.set('file download count:',filedownloadcount);
     }
     else if(eventtype == 'search'){
-      const searchcount=Number (await redisclient.get('search count: ')) || 0;
+      let searchcount=Number (await redisclient.get('search count: ')) || 0;
       searchcount += 1;
       await redisclient.set('search count: ',searchcount);
     }
@@ -170,7 +171,3 @@ app.post('/event',authmiddleware,async (req,res)=>{
     }
 
 })
-
-
-
-
