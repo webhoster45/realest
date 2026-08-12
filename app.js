@@ -9,12 +9,30 @@ const MONGODB_URL=process.env.MONGODB_URL;
 const JWT_SECERT=process.env.JWT_SECERT;
 const Schema=mongoose.Schema;
 const bcrypt=require('bcrypt');
-const Redis=require('ioredis');
-const redisclient=new Redis({
-      host: '127.0.0.1',
-      port: 6379
+const Redis=require('redis');
 
+// const redisclient=new Redis({
+// host: '127.0.0.1',
+//   port: 6379,
+//   keepAlive: 10000, // Sends a ping every 10 seconds to keep connection alive
+//   maxRetriesPerRequest: null,
+//   retryStrategy(times) {
+//     const delay = Math.min(times * 50, 2000);
+//     return delay;
+//   }
+// })
+
+const { createClient } = require('redis');
+
+const redisclient = createClient({
+    // url: 'redis://localhost:6379' // Optional config
 });
+
+redisclient.on('error', err => console.log('Redis Client Error', err));
+
+// Note: Node-Redis requires you to connect explicitly
+
+
 
 const userschema=new Schema({
     username:{type:String,required:true},
@@ -99,6 +117,7 @@ app.post('/login',async(req,res)=>{
 
 
 app.post('/event',authmiddleware,async (req,res)=>{
+    await redisclient.connect(); 
     const {eventtype, page, metadata}= req.body;
     const username=req.user;
     const userid=User.findOne({username}).id;
@@ -109,29 +128,46 @@ app.post('/event',authmiddleware,async (req,res)=>{
     }
     if(!eventtype || !page || !metadata) return res.status(400).json({message:"Missing Parameters"});
     
-    const totalevents= Number (await redisclient.get('totalevent') )|| 0;
+    const totalevents= Number (await redisclient.get('Total events:') )|| 0;
     totalevents += 1;
-    await redisclient.set('Total Events',totalevents);
+    await redisclient.set('Total events:',totalevents);
 
     if(eventtype == 'page_view'){
-    const pageview= Number (await redisclient.get('totalevent') )|| 0;
+    const pageview= Number (await redisclient.get('Page views: ') )|| 0;
     pageview += 1;
     await redisclient.set('Page views: ',pageview);
     }
     else if(eventtype == 'login'){
-      const logincount=Number (await redisclient.get('login')) || 0;
+      const logincount=Number (await redisclient.get('login count:')) || 0;
       logincount += 1;
-      await redisclient.pfadd('login',userid);
-      await redisclient.set('login count: ',logincount);
+      await redisclient.pfadd('logins:',userid);
+      await redisclient.set('login count:',logincount);
     }
-    else if(eventtype == 'logout'){}
-    else if(eventtype == 'file-upload'){}
-    else if(eventtype == 'file-download'){}
-    else if(eventtype == 'search'){}
-    else{}
+    else if(eventtype == 'logout'){
+      const logoutcount=Number (await redisclient.get('Logout: ')) || 0;
+      logoutcount += 1;
+      await redisclient.pfadd('logout count: ',userid);
+      await redisclient.set('logout count: ',logoutcount);
+    }
+    else if(eventtype == 'file-upload'){
+      const fileuploadcount=Number (await redisclient.get('file upload count:')) || 0;
+      fileuploadcount += 1;
+      await redisclient.set('file upload count:',fileuploadcount);
+    }
+    else if(eventtype == 'file-download'){
+      const filedownloadcount=Number (await redisclient.get('file download count:')) || 0;
+      filedownloadcount += 1;
+      await redisclient.set('file download count:',filedownloadcount);
+    }
+    else if(eventtype == 'search'){
+      const searchcount=Number (await redisclient.get('search count: ')) || 0;
+      searchcount += 1;
+      await redisclient.set('search count: ',searchcount);
+    }
+    else{
+      return res.status(400).json({message:`${eventtype} not supported`});
 
-
-
+    }
 
 })
 
