@@ -117,57 +117,106 @@ app.post('/login',async(req,res)=>{
 
 
 app.post('/event',authmiddleware,async (req,res)=>{
-    const {eventtype, page, metadata}= req.body;
+    // const logsday = `Unique Users : ${new Date().toDateString()}`;
+    const {eventtype, page, metadata,query}= req.body;
     const username=req.user;
     const userid=await User.findOne({username}).id;
+    let now=new Date().toDateString();
+
 
     const allowedEvents = ['page_view', 'login','logout','file-upload','file-download','search'];
+
     if (!allowedEvents.includes(eventtype)) {
       throw new Error(`Invalid event type: ${eventType}`);
     }
+
     if(!eventtype || !page || !metadata) return res.status(400).json({message:"Missing Parameters"});
     
     let totalevents= Number (await redisclient.get('Total events:') )|| 0;
     totalevents += 1;
     await redisclient.set('Total events:',totalevents);
 
+
+    
+    
+    ///Active User: event calls returning users events date.now() with the current date.now() and returned number of 300s
+     await redisclient.sAdd('active-users',userid);
+     const active=await redisclient.sMembers('active-members');
+     let filtered=active.filter(a=>{a.createdat - Date.now() > 5000});
+     let eventresult=null;
+     let liveactivity=null;
+     
     if(eventtype == 'page_view'){
     let pageview= Number (await redisclient.get('Page views: ') )|| 0;
     pageview += 1;
     await redisclient.set('Page views: ',pageview);
-    return res.status(200).json({message:await redisclient.get('Page views: ')})
+    eventresult=`Page Views: ${pageview}`;
+    await redisclient.sAdd(now,`${username} viewed ${page} `)
+
     }
+
     else if(eventtype == 'login'){
+
       let logincount=Number (await redisclient.get('login count:')) || 0;
+      let logsdayLL = `Login Unique Users : ${now}`;
       logincount += 1;
       await redisclient.pfAdd('logins:',userid);
       await redisclient.set('login count:',logincount);
-      return res.status(200).json({'Total logins:':await redisclient.get('login count:'),'Unique logins':await redisclient.pfCount('visitors:2026-08-09')})
+       // const alltimelogins=await pfMerge(logsday)
+      let uniquecount=await redisclient.pfCount(logsdayLL);
+      eventresult={'Total logins:':await redisclient.get('login count:'),'Today Unique logins':uniquecount}
+      //If this doesn't work then switch it to turning it to array then counting it
+      await redisclient.sAdd(now,`${username} Logged In `)
+
     }
     else if(eventtype == 'logout'){
+
       let logoutcount=Number (await redisclient.get('Logout: ')) || 0;
+      let logsdayLO = `Logout Unique Users : ${now}`;
       logoutcount += 1;
-      await redisclient.pfadd('logout count: ',userid);
+      // const unique=await redisclient.pfGet('')
+      await redisclient.pfAdd(logsDay1, userid);
       await redisclient.set('logout count: ',logoutcount);
+      let uniquecount=await redisclient.pfCount(logsdayLO);
+      eventresult={'Total logins:':await redisclient.get('login count:'),'Today Unique logouts: ':uniquecount};
+      await redisclient.sAdd(now,`${username} Logged Out`)
+
+
     }
     else if(eventtype == 'file-upload'){
+      
       let fileuploadcount=Number (await redisclient.get('file upload count:')) || 0;
       fileuploadcount += 1;
       await redisclient.set('file upload count:',fileuploadcount);
+      eventresult=`File Upload Count: ${fileuploadcount}`;
+      await redisclient.sAdd(now,`${username} Uploaded a File`)
+
     }
     else if(eventtype == 'file-download'){
+
       let filedownloadcount=Number (await redisclient.get('file download count:')) || 0;
       filedownloadcount += 1;
       await redisclient.set('file download count:',filedownloadcount);
+      eventresult=`File Download Count: ${filedownloadcount}`
+      await redisclient.sAdd(now,`${username} Downloaded a File`);
+
     }
     else if(eventtype == 'search'){
+
       let searchcount=Number (await redisclient.get('search count: ')) || 0;
       searchcount += 1;
       await redisclient.set('search count: ',searchcount);
-    }
-    else{
-      return res.status(400).json({message:`${eventtype} not supported`});
+      eventresult=`Search Download Count: `;
+      await redisclient.sAdd(now,`${username} Searched for ${query}`)
 
     }
+    else{
+
+      return res.status(400).json({message:`${eventtype} not supported`});
+     //begin phase 5
+    }
+    
+    return res.status(200).json({eventresult,'Activity Box':redisclient.sMembers(now)})
+    //Ask whether this is the right approach for activities, or direct logging
 
 })
