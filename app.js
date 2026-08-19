@@ -253,3 +253,33 @@ await Event.create({
     //Ask whether this is the right approach for activities, or direct logging
     //begin phase 5
 })
+
+app.get('/analytics/overview',authmiddleware,async (req,res)=>{
+  try {
+   
+  let popularpages = await client.zRangeWithScores('Popular pages', 0, -1);
+  let activeusers = await client.zRangeWithScores('Most Active Users', 0, -1);
+  let eventrankings= await client.zRangeWithScores('Event rankings', 0, -1);
+
+  return res.status(200).json({popularpages,activeusers,eventrankings})
+    
+  } catch (error) {
+    console.log(error)
+  }
+});
+
+app.get('/analytics/pages');
+
+app.get('/analytics/login')
+
+app.get('/analytics/logout');
+
+app.get('/analytics/file-upload');
+
+app.get('/analytics/file-download');
+
+app.get('/analytics/file-download');
+
+app.get('/analytics/search');
+
+
