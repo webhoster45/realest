@@ -77,6 +77,8 @@ try{
 }
 catch(err){
     console.log(err);
+    return res.status(500).json({message:"Internal Server Error"})
+
 }
 }
 
@@ -96,6 +98,8 @@ try{
 }
 catch(err){
     console.log(err);
+    return res.status(500).json({message:"Internal Server Error"})
+
 }
 })
 
@@ -112,13 +116,16 @@ app.post('/login',async(req,res)=>{
 
   }catch(err){
     console.log(err);
+    return res.status(500).json({message:"Internal Server Error"})
   }
 })
 
 
 app.post('/event',authmiddleware,async (req,res)=>{
-    // const logsday = `Unique Users : ${new Date().toDateString()}`;
-    const {eventtype, page, metadata,query}= req.body;
+
+
+try {
+   const {eventtype, page, metadata,query}= req.body;
     const username=req.user;
     const userid=await User.findOne({username}).id;
     let now=new Date().toDateString();
@@ -143,25 +150,25 @@ app.post('/event',authmiddleware,async (req,res)=>{
     ]);
 
 
-    await client.zIncrBy('Most Active Users', 1, username);
+    await redisclient.zIncrBy('Most Active Users', 1, username);
 
 
 
-        await client.zAdd('Popular pages', [
+        await redisclient.zAdd('Popular pages', [
       { score: 0, value: page }
     ]);
 
 
-    await client.zIncrBy('Popular pages', 1, page);
+    await redisclient.zIncrBy('Popular pages', 1, page);
 
 
     
-        await client.zAdd('Event rankings', [
+        await redisclient.zAdd('Event rankings', [
       { score: 0, value: eventtype }
     ]);
 
 
-    await client.zIncrBy('Event rankings', 1, eventtype);
+    await redisclient.zIncrBy('Event rankings', 1, eventtype);
 
     
     
@@ -176,8 +183,8 @@ app.post('/event',authmiddleware,async (req,res)=>{
     let pageview= Number (await redisclient.get('Page views: ') )|| 0;
     pageview += 1;
     await redisclient.set('Page views: ',pageview);
-    eventresult=`Page Views: ${pageview}`;
     await redisclient.sAdd(now,`${username} viewed ${page} `)
+
 
     }
 
@@ -249,26 +256,51 @@ await Event.create({
 });
 
     
-    return res.status(200).json({eventresult,'Activity Box':redisclient.sMembers(now)})
+    return res.status(200).json({totalevents,eventresult,'Activity Box':redisclient.sMembers(now)})
     //Ask whether this is the right approach for activities, or direct logging
     //begin phase 5
+} catch (error) {
+  console.log(error);
+  return res.status(500).json({message:"Internal Error"})
+}
+
+
+
+
 })
 
 app.get('/analytics/overview',authmiddleware,async (req,res)=>{
   try {
    
-  let popularpages = await client.zRangeWithScores('Popular pages', 0, -1);
-  let activeusers = await client.zRangeWithScores('Most Active Users', 0, -1);
-  let eventrankings= await client.zRangeWithScores('Event rankings', 0, -1);
+  let popularpages = await redisclient.zRangeWithScores('Popular pages', 0, -1);
+  let activeusers = await redisclient.zRangeWithScores('Most Active Users', 0, -1);
+  let eventrankings= await redisclient.zRangeWithScores('Event rankings', 0, -1);
+
 
   return res.status(200).json({popularpages,activeusers,eventrankings})
     
   } catch (error) {
-    console.log(error)
+
+    console.log(err);
+    return res.status(500).json({message:"Internal Server Error"})
+
   }
 });
 
-app.get('/analytics/pages');
+app.get('/analytics/pages',authmiddleware,async(req,res)=>{
+  try {
+    let now=new Date().toDateString();
+    let pageview=await redisclient.get('Page views: ');
+    let liveactivity=redisclient.sMembers(now);
+    
+    return res.status(200).json({Time:now,liveactivity,pageview})
+
+  } catch (error) {
+    console.log(err);
+    return res.status(500).json({message:"Internal Server Error"})
+  }
+});
+
 
 app.get('/analytics/login')
 
