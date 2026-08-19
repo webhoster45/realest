@@ -122,6 +122,7 @@ app.post('/event',authmiddleware,async (req,res)=>{
     const username=req.user;
     const userid=await User.findOne({username}).id;
     let now=new Date().toDateString();
+    
 
 
     const allowedEvents = ['page_view', 'login','logout','file-upload','file-download','search'];
@@ -131,11 +132,36 @@ app.post('/event',authmiddleware,async (req,res)=>{
     }
 
     if(!eventtype || !page || !metadata) return res.status(400).json({message:"Missing Parameters"});
+
     
     let totalevents= Number (await redisclient.get('Total events:') )|| 0;
     totalevents += 1;
     await redisclient.set('Total events:',totalevents);
 
+    await client.zAdd('Most Active Users', [
+      { score: 0, value: username }
+    ]);
+
+
+    await client.zIncrBy('Most Active Users', 1, username);
+
+
+
+        await client.zAdd('Popular pages', [
+      { score: 0, value: page }
+    ]);
+
+
+    await client.zIncrBy('Popular pages', 1, page);
+
+
+    
+        await client.zAdd('Event rankings', [
+      { score: 0, value: eventtype }
+    ]);
+
+
+    await client.zIncrBy('Event rankings', 1, eventtype);
 
     
     
@@ -206,17 +232,24 @@ app.post('/event',authmiddleware,async (req,res)=>{
       let searchcount=Number (await redisclient.get('search count: ')) || 0;
       searchcount += 1;
       await redisclient.set('search count: ',searchcount);
-      eventresult=`Search Download Count: `;
+      eventresult=`Search Count: ${searchcount} `;
       await redisclient.sAdd(now,`${username} Searched for ${query}`)
 
     }
     else{
 
       return res.status(400).json({message:`${eventtype} not supported`});
-     //begin phase 5
+
     }
+await Event.create({
+  userid: userid,      
+  eventtype: eventtype, 
+  page: page,          
+  metadata: "Data"     
+});
+
     
     return res.status(200).json({eventresult,'Activity Box':redisclient.sMembers(now)})
     //Ask whether this is the right approach for activities, or direct logging
-
+    //begin phase 5
 })
