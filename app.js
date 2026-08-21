@@ -22,17 +22,29 @@ const Redis=require('redis');
 //   }
 // })
 
+let activeclients= []; 
+
 const { createClient } = require('redis');
 
 const redisclient = createClient({
     // url: 'redis://localhost:6379' // Optional config
 });
 
+const redissubscriber= createClient();
 redisclient.on('error', err => console.log('Redis Client Error', err));
 
-// Note: Node-Redis requires you to connect explicitly
-redisclient.connect(); 
+async function start(){
+    redisclient.connect(); 
+    await redissubscriber.connect();
+    console.log("Redis Connected Successfully");
 
+    await redissubscriber.subscribe('notification',(message)=>{
+    activeclients.forEach(client=>client.response.write(`data: ${message}`))
+    })
+}
+// Note: Node-Redis requires you to connect explicitly
+
+start()
 
 const userschema=new Schema({
     username:{type:String,required:true},
@@ -120,11 +132,27 @@ app.post('/login',async(req,res)=>{
   }
 })
 
+app.get('/stream',(req,res)=>{
+  res.writeHead(200,{
+    'Content_Type':'text/event-stream',
+    'Cache-Control':'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin':'*'
+  })
+
+  const uniqueid=Date.now();
+  activeclients.push({id:uniqueid,reponse:res})
+
+  req.on('close',()=>{
+    activeclients= activeclients.filter(client => client.id != uniqueid)
+  })
+})
 
 app.post('/event',authmiddleware,async (req,res)=>{
 
 
 try {
+  const eventdata=req.body;
    const {eventtype, page, metadata,query}= req.body;
     const username=req.user;
     const userid=await User.findOne({username}).id;
@@ -197,7 +225,6 @@ try {
       await redisclient.set('login count:',logincount);
        // const alltimelogins=await pfMerge(logsday)
       let uniquecount=await redisclient.pfCount(logsdayLL);
-      eventresult={'Total logins:':await redisclient.get('login count:'),'Today Unique logins':uniquecount}
       //If this doesn't work then switch it to turning it to array then counting it
       await redisclient.sAdd(now,`${username} Logged In `)
 
@@ -211,7 +238,7 @@ try {
       await redisclient.pfAdd(logsDay1, userid);
       await redisclient.set('logout count: ',logoutcount);
       let uniquecount=await redisclient.pfCount(logsdayLO);
-      eventresult={'Total logins:':await redisclient.get('login count:'),'Today Unique logouts: ':uniquecount};
+
       await redisclient.sAdd(now,`${username} Logged Out`)
 
 
@@ -221,7 +248,6 @@ try {
       let fileuploadcount=Number (await redisclient.get('file upload count:')) || 0;
       fileuploadcount += 1;
       await redisclient.set('file upload count:',fileuploadcount);
-      eventresult=`File Upload Count: ${fileuploadcount}`;
       await redisclient.sAdd(now,`${username} Uploaded a File`)
 
     }
@@ -248,17 +274,17 @@ try {
       return res.status(400).json({message:`${eventtype} not supported`});
 
     }
-await Event.create({
+
+    await Event.create({
   userid: userid,      
   eventtype: eventtype, 
   page: page,          
   metadata: "Data"     
 });
 
-    
-    return res.status(200).json({totalevents,eventresult,'Activity Box':redisclient.sMembers(now)})
-    //Ask whether this is the right approach for activities, or direct logging
-    //begin phase 5
+    await redissubscriber.subscribe('notifications',eventdata)
+    return res.status(200).json({message:`Registered ${eventtype} for ${username}`})
+ 
 } catch (error) {
   console.log(error);
   return res.status(500).json({message:"Internal Error"})
@@ -271,13 +297,13 @@ await Event.create({
 
 app.get('/analytics/overview',authmiddleware,async (req,res)=>{
   try {
-   
+  let totalevents= Number (await redisclient.get('Total events:') )
   let popularpages = await redisclient.zRangeWithScores('Popular pages', 0, -1);
   let activeusers = await redisclient.zRangeWithScores('Most Active Users', 0, -1);
   let eventrankings= await redisclient.zRangeWithScores('Event rankings', 0, -1);
+  let liveactivity=redisclient.sMembers(now);
 
-
-  return res.status(200).json({popularpages,activeusers,eventrankings})
+  return res.status(200).json({totalevents,popularpages,activeusers,eventrankings,liveactivity})
     
   } catch (error) {
 
@@ -291,9 +317,9 @@ app.get('/analytics/pages',authmiddleware,async(req,res)=>{
   try {
     let now=new Date().toDateString();
     let pageview=await redisclient.get('Page views: ');
-    let liveactivity=redisclient.sMembers(now);
+
     
-    return res.status(200).json({Time:now,liveactivity,pageview})
+    return res.status(200).json({Time:now,pageview})
 
   } catch (error) {
     console.log(err);
@@ -302,16 +328,75 @@ app.get('/analytics/pages',authmiddleware,async(req,res)=>{
 });
 
 
-app.get('/analytics/login')
+app.get('/analytics/login',authmiddleware , async (req,res)=>{
+  try {
+    let now=new Date().toDateString();
+    let logsdayLI = `Login Unique Users : ${now}`;
+    let eventresult={'Total logins:':await redisclient.get('login count:'),'Today Unique logins: ':uniquecount};
 
-app.get('/analytics/logout');
+  return res.status(200).json({eventresult})
+  } catch (error) {
+    console.log(err);
+    return res.status(500).json({message:"Internal Server Error"})
+  } 
+})
 
-app.get('/analytics/file-upload');
+app.get('/analytics/logout',authmiddleware , async (req,res)=>{
+  try {
 
-app.get('/analytics/file-download');
+    let now=new Date().toDateString();
+    let logsdayLO = `Logout Unique Users : ${now}`;
+    let eventresult={'Total logouts:':await redisclient.get('logout count:'),'Today Unique logouts: ':uniquecount};
+    return res.status(200).json({eventresult})
 
-app.get('/analytics/file-download');
+  } catch (error) {
+    console.log(err);
+    return res.status(500).json({message:"Internal Server Error"})
+  }
+});
 
-app.get('/analytics/search');
+app.get('/analytics/file-upload',authmiddleware , async (req,res)=>{
+  try {
+
+    let now=new Date().toDateString();
+    let fileuploadcount=Number (await redisclient.get('file upload count:')) || 0;
+    eventresult=`File Upload Count: ${fileuploadcount}`;
+    return res.status(200).json({eventresult})
+
+  } catch (error) {
+    console.log(err);
+    return res.status(500).json({message:"Internal Server Error"})
+  }
+});
+
+app.get('/analytics/file-download',authmiddleware , async (req,res)=>{
+  try {
+
+    let now=new Date().toDateString();
+    let filedownloadcount=Number (await redisclient.get('file download count:')) || 0;
+    let eventresult=`File Download Count: ${filedownloadcount}`
+
+    return res.status(200).json({eventresult})
+
+  } catch (error) {
+    console.log(err);
+    return res.status(500).json({message:"Internal Server Error"})
+  }
+});
+
+
+app.get('/analytics/search',authmiddleware , async (req,res)=>{
+  try {
+    
+    let now=new Date().toDateString();
+    let searchcount=Number (await redisclient.get('search count: ')) || 0;
+    let eventresult=`Search Count: ${searchcount} `;
+
+    return res.status(200).json({eventresult})
+  } catch (error) {
+    console.log(err);
+    return res.status(500).json({message:"Internal Server Error"})
+  }
+});
 
 
